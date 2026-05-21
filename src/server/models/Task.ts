@@ -17,6 +17,14 @@ export interface ITask extends Document {
   completedAt?: Date;
   timerStartedAt?: Date;
   timeSpent: number; // in seconds
+  manualTimeSpent: number; // in seconds, entered manually by employee
+  extraTasks?: {
+    title: string;
+    description?: string;
+    timeSpent: number;
+    evidence?: string;
+    evidenceFiles?: any[];
+  }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -63,6 +71,26 @@ const taskSchema = new Schema<ITask>(
       type: Number,
       default: 0,
     },
+    manualTimeSpent: {
+      type: Number,
+      default: 0,
+    },
+    extraTasks: [
+      {
+        title: { type: String, trim: true },
+        description: { type: String, default: "" },
+        timeSpent: { type: Number, default: 0 },
+        evidence: { type: String, default: "" },
+        evidenceFiles: [
+          {
+            id: String,
+            name: String,
+            url: String,
+            type: { type: String },
+          },
+        ],
+      },
+    ],
     evidence: {
       type: String,
       default: "",

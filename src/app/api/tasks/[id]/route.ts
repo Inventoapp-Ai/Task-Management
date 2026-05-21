@@ -71,13 +71,27 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { status, remarks, evidence, completionRemarks, evidenceFiles } = body;
+    const { status, remarks, evidence, completionRemarks, evidenceFiles, manualTimeSpent, extraTasks } = body;
     
     if (status) task.status = status;
     if (remarks !== undefined) task.remarks = remarks;
     if (evidence !== undefined) task.evidence = evidence;
     if (completionRemarks !== undefined) task.completionRemarks = completionRemarks;
     if (evidenceFiles !== undefined) task.evidenceFiles = evidenceFiles;
+    if (manualTimeSpent !== undefined) {
+      task.manualTimeSpent = Math.max(0, Number(manualTimeSpent) || 0);
+    }
+    if (Array.isArray(extraTasks)) {
+      task.extraTasks = extraTasks
+        .filter((extra: any) => extra?.title?.trim())
+        .map((extra: any) => ({
+          title: extra.title.trim(),
+          description: extra.description?.trim() || "",
+          timeSpent: Math.max(0, Number(extra.timeSpent) || 0),
+          evidence: extra.evidence?.trim() || "",
+          evidenceFiles: Array.isArray(extra.evidenceFiles) ? extra.evidenceFiles : [],
+        }));
+    }
 
     if (status === "completed") {
       task.completedAt = new Date();

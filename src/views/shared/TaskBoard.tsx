@@ -164,7 +164,7 @@ export default function TaskBoard({
       
       // Determine if we should fetch micro-tasks
       const fetchMicro = 
-        (role === "admin" && (type === "assigned_to_me" || type === "all")) || 
+        (role === "admin" && type === "assigned_to_me") || 
         (role === "master_admin" && (type === "all" || type === "admin_reports"));
 
       const [tasksRes, microTasksRes] = await Promise.all([
@@ -222,7 +222,7 @@ export default function TaskBoard({
     }
   };  const fetchAssignmentTasks = async (assignmentId: string) => {
     try {
-      const res = await tasks.getAssignmentTasks(assignmentId);
+      const res = await tasks.getAssignmentTasks(assignmentId, filterDate || undefined);
       if (res.success) {
         setSelectedAssignment((prev: any) => ({
           ...prev,
@@ -252,7 +252,7 @@ export default function TaskBoard({
       
       if (role !== "employee" && usersRes.success && profileRes.success) {
         const profile = profileRes.data;
-        let allUsers = usersRes.data || [];
+        const allUsers = usersRes.data || [];
         
         let filtered = allUsers.filter((u: any) => (u.id || u._id) !== (profile.id || profile._id));
 
@@ -374,6 +374,28 @@ export default function TaskBoard({
     }
   };
 
+  const getCurrentUserId = () => String(currentUser?._id || currentUser?.id || currentUser?.userId || "");
+
+  const canEditAssignment = (assignment: any) => {
+    const currentUserId = getCurrentUserId();
+    const assignedById = String(assignment.assignedBy?._id || assignment.assignedBy || "");
+    const submittedById = String(assignment.submittedBy?._id || assignment.submittedBy || "");
+
+    if (role === "master_admin") return true;
+    if (assignment.isMicroTask) return role === "admin" && submittedById === currentUserId;
+    return role === "admin" && assignedById === currentUserId;
+  };
+
+  const canDeleteAssignment = (assignment: any) => {
+    const currentUserId = getCurrentUserId();
+    const assignedById = String(assignment.assignedBy?._id || assignment.assignedBy || "");
+    const submittedById = String(assignment.submittedBy?._id || assignment.submittedBy || "");
+
+    if (role === "master_admin") return true;
+    if (assignment.isMicroTask) return role === "admin" && submittedById === currentUserId;
+    return role === "admin" && assignedById === currentUserId;
+  };
+
   const handleEditMicroTask = (assignment: any) => {
     setEditingMicroTask(assignment);
     setIsSubmitTaskModalOpen(true);
@@ -484,6 +506,28 @@ export default function TaskBoard({
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatCardDate = (value: string | Date | undefined) => {
+    if (!value) return "";
+    const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? new Date(`${value}T00:00:00`)
+      : new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString("en-IN");
+  };
+
+  const getCardDate = (assignment: any) => {
+    if (assignment.isMicroTask) {
+      return assignment.tasks?.[0]?.taskDate || assignment.taskDate || assignment.submittedAt || assignment.createdAt;
+    }
+
+    const tasksWithDeadline = [...(assignment.tasks || [])]
+      .filter((task: any) => task.deadline)
+      .sort((a: any, b: any) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
+
+    return tasksWithDeadline[0]?.deadline || assignment.createdAt;
   };
 
   return (
@@ -925,8 +969,7 @@ export default function TaskBoard({
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       {/* Edit Logic */}
-                      {((!assignment.isMicroTask && (role === 'master_admin' || (role === 'admin' && (assignment.assignedBy?._id || assignment.assignedBy) === currentUser?._id))) ||
-                        (assignment.isMicroTask && (role === 'master_admin' || (role === 'admin' && (assignment.submittedBy?._id || assignment.submittedBy) === currentUser?._id)))) && (
+                      {canEditAssignment(assignment) && (
                         <Button 
                           variant="ghost" 
                           size="icon" 
@@ -942,8 +985,7 @@ export default function TaskBoard({
                       )}
 
                       {/* Delete Logic */}
-                      {((!assignment.isMicroTask && role === 'master_admin') ||
-                        (assignment.isMicroTask && (role === 'master_admin' || (role === 'admin' && (assignment.submittedBy?._id || assignment.submittedBy) === currentUser?._id)))) && (
+                      {canDeleteAssignment(assignment) && (
                         <Button 
                           variant="ghost" 
                           size="icon" 
@@ -1024,7 +1066,7 @@ export default function TaskBoard({
                      <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold text-muted-foreground">
                       <div className="flex items-center gap-1.5">
                         <Calendar className="h-3.5 w-3.5" />
-                        {new Date(assignment.createdAt).toLocaleDateString()}
+                        {formatCardDate(getCardDate(assignment))}
                       </div>
                       {assignment.isMicroTask && assignment.tasks?.[0]?.timeSpent > 0 && (
                         <div className="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-md">

@@ -129,6 +129,14 @@ function boundedNumber(value: string | null, fallback: number, max: number) {
   return Math.min(parseInt(value || "", 10) || fallback, max);
 }
 
+function getISTDateRange(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+
+  const start = new Date(`${date}T00:00:00+05:30`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
 function normalizeSeoData(seoData: any) {
   return {
     questionsAnswered: Math.max(0, Number(seoData?.questionsAnswered) || 0),
@@ -683,7 +691,15 @@ export async function GET(request: NextRequest, context: Context) {
     if (auth.response) return auth.response;
     
     const assignmentId = assignmentTasksMatch[1];
-    const tasks = await Task.find({ assignmentId }).sort({ createdAt: 1 });
+    const dateFilter = query.get("date");
+    const dateRange = dateFilter ? getISTDateRange(dateFilter) : null;
+    const taskFilter: any = { assignmentId };
+
+    if (dateRange) {
+      taskFilter.deadline = { $gte: dateRange.start, $lt: dateRange.end };
+    }
+
+    const tasks = await Task.find(taskFilter).sort({ deadline: 1, createdAt: 1 });
     return ok("Assignment tasks retrieved", tasks);
   }
 
@@ -782,11 +798,10 @@ export async function GET(request: NextRequest, context: Context) {
     }
 
     if (dateFilter) {
-      const start = new Date(dateFilter);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(dateFilter);
-      end.setHours(23, 59, 59, 999);
-      filter.taskDate = { $gte: start, $lte: end };
+      const dateRange = getISTDateRange(dateFilter);
+      if (dateRange) {
+        filter.taskDate = { $gte: dateRange.start, $lt: dateRange.end };
+      }
     }
 
     const [microTasks, total] = await Promise.all([
@@ -1233,9 +1248,19 @@ export async function DELETE(request: NextRequest, context: Context) {
 
   const assignmentDeleteMatch = path.match(/^\/assignments\/([^/]+)$/);
   if (assignmentDeleteMatch) {
-    const auth = requireMasterAdmin(request);
+    const auth = requireAdmin(request);
     if (auth.response) return auth.response;
     const assignmentId = assignmentDeleteMatch[1];
+
+    const assignment = await Assignment.findById(assignmentId);
+    if (!assignment) return fail(404, "Assignment not found");
+
+    const isOwner = assignment.assignedBy.toString() === auth.user.userId;
+    const isMaster = auth.user.role === "master_admin";
+
+    if (!isMaster && !isOwner) {
+      return fail(403, "Not authorized to delete this assignment");
+    }
 
     await Task.deleteMany({ assignmentId: new Types.ObjectId(assignmentId) });
     await Assignment.findByIdAndDelete(assignmentId);

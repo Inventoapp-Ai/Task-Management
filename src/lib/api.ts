@@ -383,8 +383,11 @@ export const tasks = {
     return apiRequest(`/tasks?${params.toString()}`);
   },
 
-  getAssignmentTasks: async (assignmentId: string) => {
-    return apiRequest(`/assignments/${assignmentId}/tasks`);
+  getAssignmentTasks: async (assignmentId: string, date?: string) => {
+    const params = new URLSearchParams();
+    if (date) params.append("date", date);
+    const query = params.toString();
+    return apiRequest(`/assignments/${assignmentId}/tasks${query ? `?${query}` : ""}`);
   },
 
   update: async (id: string, data: { 
@@ -394,6 +397,8 @@ export const tasks = {
     evidence?: string;
     completionRemarks?: string;
     evidenceFiles?: any[];
+    manualTimeSpent?: number;
+    extraTasks?: any[];
   }) => {
     return apiRequest(`/tasks/${id}`, {
       method: "PUT",

@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 export default function TodayLogs() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD format in local time
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
   useEffect(() => {
     const fetchUser = async () => {

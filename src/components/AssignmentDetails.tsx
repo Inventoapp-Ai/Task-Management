@@ -63,6 +63,46 @@ export function AssignmentDetails({
   // Local state for evidence data per task
   const [taskEvidence, setTaskEvidence] = useState<Record<string, any>>({});
 
+  const emptyExtraTask = () => ({
+    title: "",
+    description: "",
+    hours: "",
+    minutes: "",
+    evidence: "",
+    evidenceFiles: [],
+  });
+
+  const secondsToTimeFields = (seconds: number) => ({
+    hours: seconds ? String(Math.floor(seconds / 3600)) : "",
+    minutes: seconds ? String(Math.floor((seconds % 3600) / 60)) : "",
+  });
+
+  const timeFieldsToSeconds = (hours: unknown, minutes: unknown) => {
+    const hrs = Math.max(0, Number(hours) || 0);
+    const mins = Math.max(0, Number(minutes) || 0);
+    return Math.round(hrs * 3600 + mins * 60);
+  };
+
+  const normalizeExtraTasksForForm = (extraTasks: any[] = []) =>
+    extraTasks.map((extra) => ({
+      title: extra.title || "",
+      description: extra.description || "",
+      ...secondsToTimeFields(Number(extra.timeSpent) || 0),
+      evidence: extra.evidence || "",
+      evidenceFiles: extra.evidenceFiles || [],
+    }));
+
+  const normalizeExtraTasksForSave = (extraTasks: any[] = []) =>
+    extraTasks
+      .filter((extra) => extra.title?.trim())
+      .map((extra) => ({
+        title: extra.title.trim(),
+        description: extra.description?.trim() || "",
+        timeSpent: timeFieldsToSeconds(extra.hours, extra.minutes),
+        evidence: extra.evidence?.trim() || "",
+        evidenceFiles: extra.evidenceFiles || [],
+      }));
+
   const fetchAssignmentTasks = async (assignmentId: string) => {
     try {
       setLoading(true);
@@ -77,7 +117,10 @@ export function AssignmentDetails({
           initialEvidence[t._id] = {
             completionRemarks: t.completionRemarks || "",
             evidence: t.evidence || "",
-            evidenceFiles: t.evidenceFiles || []
+            evidenceFiles: t.evidenceFiles || [],
+            manualHours: secondsToTimeFields(t.manualTimeSpent || 0).hours,
+            manualMinutes: secondsToTimeFields(t.manualTimeSpent || 0).minutes,
+            extraTasks: normalizeExtraTasksForForm(t.extraTasks || []),
           };
         });
         setTaskEvidence(initialEvidence);
@@ -102,7 +145,10 @@ export function AssignmentDetails({
           initialEvidence[id] = {
             completionRemarks: t.completionRemarks || "",
             evidence: t.evidence || (t.proofLinks?.[0] || ""),
-            evidenceFiles: t.proofFiles || []
+            evidenceFiles: t.proofFiles || [],
+            manualHours: secondsToTimeFields(t.manualTimeSpent || 0).hours,
+            manualMinutes: secondsToTimeFields(t.manualTimeSpent || 0).minutes,
+            extraTasks: normalizeExtraTasksForForm(t.extraTasks || []),
           };
         });
         setTaskEvidence(initialEvidence);
@@ -163,6 +209,50 @@ export function AssignmentDetails({
     });
   };
 
+  const updateExtraTaskField = (taskId: string, index: number, field: string, value: any) => {
+    const currentEvidence = taskEvidence[taskId] || {};
+    const extraTasks = [...(currentEvidence.extraTasks || [])];
+    extraTasks[index] = { ...(extraTasks[index] || emptyExtraTask()), [field]: value };
+    updateTaskField(taskId, "extraTasks", extraTasks);
+  };
+
+  const addExtraTask = (taskId: string) => {
+    const currentEvidence = taskEvidence[taskId] || {};
+    updateTaskField(taskId, "extraTasks", [...(currentEvidence.extraTasks || []), emptyExtraTask()]);
+  };
+
+  const removeExtraTask = (taskId: string, index: number) => {
+    const currentEvidence = taskEvidence[taskId] || {};
+    updateTaskField(taskId, "extraTasks", (currentEvidence.extraTasks || []).filter((_: any, i: number) => i !== index));
+  };
+
+  const handleExtraTaskFileUpload = async (taskId: string, index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const uploadKey = `${taskId}-extra-${index}`;
+    setIsUploading(uploadKey);
+    try {
+      const currentEvidence = taskEvidence[taskId] || {};
+      const extraTasks = [...(currentEvidence.extraTasks || [])];
+      const extraTask = { ...(extraTasks[index] || emptyExtraTask()) };
+      const newFiles = [...(extraTask.evidenceFiles || [])];
+
+      for (let i = 0; i < files.length; i++) {
+        const res = await fileApi.upload(files[i]);
+        if (res.success) newFiles.push(res.data);
+      }
+
+      extraTasks[index] = { ...extraTask, evidenceFiles: newFiles };
+      updateTaskField(taskId, "extraTasks", extraTasks);
+      toast.success("Extra task files attached");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "File upload failed"));
+    } finally {
+      setIsUploading(null);
+    }
+  };
+
   const handleSaveProgress = async (taskId: string, finalize = false) => {
     const evidence = taskEvidence[taskId];
     if (finalize && !evidence.completionRemarks && !evidence.evidence && (!evidence.evidenceFiles || evidence.evidenceFiles.length === 0)) {
@@ -171,9 +261,12 @@ export function AssignmentDetails({
     }
 
     try {
+      const manualTimeSpent = timeFieldsToSeconds(evidence.manualHours, evidence.manualMinutes);
       const res = await tasks.update(taskId, {
         status: finalize ? "completed" : undefined,
-        ...evidence
+        ...evidence,
+        manualTimeSpent,
+        extraTasks: normalizeExtraTasksForSave(evidence.extraTasks || []),
       });
       if (res.success) {
         toast.success(finalize ? "Task finalized successfully" : "Progress saved as draft");
@@ -294,7 +387,7 @@ export function AssignmentDetails({
                     <div className="flex flex-col items-end gap-3 shrink-0">
                       <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-100 bg-zinc-50 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-zinc-100 dark:border-zinc-700 text-[10px] font-bold tabular-nums">
                         <Clock className="h-3.5 w-3.5 text-zinc-400" />
-                        {formatTime(task.timeSpent || 0)}
+                        {formatTime((task.timeSpent || 0) + (task.manualTimeSpent || 0))}
                       </div>
                       <div className="flex items-center gap-2">
                         {task.status !== 'completed' && isAssignee && !assignment.isMicroTask && (
@@ -335,6 +428,35 @@ export function AssignmentDetails({
                     <div className="px-6 pb-6 pt-2 border-t border-dashed border-zinc-100 dark:border-zinc-800 space-y-6 bg-zinc-50/30 dark:bg-zinc-900/20">
                       <div className="grid lg:grid-cols-2 gap-6">
                         <div className="space-y-4">
+                           <div className="grid gap-2">
+                              <Label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Manual Time Spent</Label>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="relative">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="0"
+                                    value={evidence.manualHours || ""}
+                                    onChange={(e) => updateTaskField(task._id, "manualHours", e.target.value)}
+                                    className="h-12 pr-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                                  />
+                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400 uppercase">Hr</span>
+                                </div>
+                                <div className="relative">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max="59"
+                                    placeholder="0"
+                                    value={evidence.manualMinutes || ""}
+                                    onChange={(e) => updateTaskField(task._id, "manualMinutes", e.target.value)}
+                                    className="h-12 pr-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                                  />
+                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400 uppercase">Min</span>
+                                </div>
+                              </div>
+                           </div>
+
                            <div className="grid gap-2">
                               <Label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Remarks & Draft Notes</Label>
                               <textarea 
@@ -385,6 +507,112 @@ export function AssignmentDetails({
                         </div>
                       </div>
 
+                      <div className="space-y-3 rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white/70 dark:bg-zinc-950/40 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <Label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Extra Tasks Done</Label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 rounded-xl text-[10px] font-bold uppercase tracking-widest gap-2"
+                            onClick={() => addExtraTask(task._id)}
+                          >
+                            <Plus className="h-3.5 w-3.5" /> Add
+                          </Button>
+                        </div>
+
+                        {(evidence.extraTasks || []).map((extra: any, extraIndex: number) => (
+                          <div key={extraIndex} className="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/40 p-4 space-y-3">
+                            <div className="flex items-start gap-3">
+                              <div className="grid gap-3 flex-1">
+                                <Input
+                                  placeholder="Extra task title"
+                                  value={extra.title}
+                                  onChange={(e) => updateExtraTaskField(task._id, extraIndex, "title", e.target.value)}
+                                  className="h-11 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                                />
+                                <textarea
+                                  placeholder="Description"
+                                  value={extra.description}
+                                  onChange={(e) => updateExtraTaskField(task._id, extraIndex, "description", e.target.value)}
+                                  className="w-full min-h-[72px] p-3 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 focus:ring-2 focus:ring-zinc-900/5 outline-none text-sm resize-none font-medium shadow-sm"
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 rounded-xl text-zinc-400 hover:text-destructive"
+                                onClick={() => removeExtraTask(task._id, extraIndex)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+
+                            <div className="grid md:grid-cols-2 gap-3">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="relative">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder="0"
+                                    value={extra.hours || ""}
+                                    onChange={(e) => updateExtraTaskField(task._id, extraIndex, "hours", e.target.value)}
+                                    className="h-11 pr-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                                  />
+                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400 uppercase">Hr</span>
+                                </div>
+                                <div className="relative">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max="59"
+                                    placeholder="0"
+                                    value={extra.minutes || ""}
+                                    onChange={(e) => updateExtraTaskField(task._id, extraIndex, "minutes", e.target.value)}
+                                    className="h-11 pr-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                                  />
+                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400 uppercase">Min</span>
+                                </div>
+                              </div>
+                              <div className="relative">
+                                <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+                                <Input
+                                  placeholder="Proof link if any"
+                                  value={extra.evidence || ""}
+                                  onChange={(e) => updateExtraTaskField(task._id, extraIndex, "evidence", e.target.value)}
+                                  className="h-11 pl-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              {extra.evidenceFiles?.map((file: any, fileIndex: number) => (
+                                <div key={fileIndex} className="flex items-center gap-2 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-[10px] font-bold px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+                                  <File className="h-3.5 w-3.5" />
+                                  <span className="max-w-[120px] truncate">{file.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const files = extra.evidenceFiles.filter((_: any, i: number) => i !== fileIndex);
+                                      updateExtraTaskField(task._id, extraIndex, "evidenceFiles", files);
+                                    }}
+                                    className="hover:text-destructive transition-colors"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                              <label className="flex items-center gap-2 bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900 text-zinc-400 cursor-pointer text-[10px] font-bold px-4 py-2.5 rounded-xl border border-zinc-100 dark:border-zinc-800 transition-all border-dashed">
+                                {isUploading === `${task._id}-extra-${extraIndex}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                                <span>{isUploading === `${task._id}-extra-${extraIndex}` ? "Uploading..." : "Attach Proof"}</span>
+                                <input type="file" multiple className="hidden" onChange={(e) => handleExtraTaskFileUpload(task._id, extraIndex, e)} disabled={isUploading === `${task._id}-extra-${extraIndex}`} />
+                              </label>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
                       <div className="flex items-center justify-end gap-3 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                          <Button 
                             variant="outline" 
@@ -418,6 +646,23 @@ export function AssignmentDetails({
                            )}
                         </div>
                         <div className="p-4 space-y-4">
+                          {(task.timeSpent > 0 || task.manualTimeSpent > 0) && (
+                            <div className="grid sm:grid-cols-3 gap-2">
+                              <div className="rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3">
+                                <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Timer</p>
+                                <p className="text-[11px] font-black text-zinc-800 dark:text-zinc-100 tabular-nums">{formatTime(task.timeSpent || 0)}</p>
+                              </div>
+                              <div className="rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3">
+                                <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Manual</p>
+                                <p className="text-[11px] font-black text-zinc-800 dark:text-zinc-100 tabular-nums">{formatTime(task.manualTimeSpent || 0)}</p>
+                              </div>
+                              <div className="rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3">
+                                <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Total</p>
+                                <p className="text-[11px] font-black text-zinc-800 dark:text-zinc-100 tabular-nums">{formatTime((task.timeSpent || 0) + (task.manualTimeSpent || 0))}</p>
+                              </div>
+                            </div>
+                          )}
+
                           {task.completionRemarks && (
                             <div>
                               <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-tighter mb-1">Personnel Remarks</p>
@@ -459,6 +704,38 @@ export function AssignmentDetails({
                                   </div>
                                 ))}
                              </div>
+                          )}
+                          {task.extraTasks?.length > 0 && (
+                            <div className="space-y-2 pt-2 border-t border-emerald-100/60 dark:border-emerald-900/30">
+                              <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest">Extra Tasks</p>
+                              {task.extraTasks.map((extra: any, extraIndex: number) => (
+                                <div key={extraIndex} className="rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3 space-y-2">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-xs font-black text-zinc-900 dark:text-zinc-100">{extra.title}</p>
+                                      {extra.description && <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">{extra.description}</p>}
+                                    </div>
+                                    <span className="shrink-0 text-[10px] font-black text-zinc-500 tabular-nums bg-zinc-50 dark:bg-zinc-800 px-2 py-1 rounded-lg">
+                                      {formatTime(extra.timeSpent || 0)}
+                                    </span>
+                                  </div>
+                                  {(extra.evidence || extra.evidenceFiles?.length > 0) && (
+                                    <div className="flex flex-wrap gap-2">
+                                      {extra.evidence && (
+                                        <a href={extra.evidence} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[10px] text-zinc-900 dark:text-white font-bold bg-zinc-50 dark:bg-zinc-950 p-2 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                                          <LinkIcon className="h-3 w-3" /> Proof Link <ExternalLink className="h-2.5 w-2.5 opacity-30" />
+                                        </a>
+                                      )}
+                                      {extra.evidenceFiles?.map((file: any, fileIndex: number) => (
+                                        <a key={fileIndex} href={getViewUrl(file.url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[10px] text-zinc-900 dark:text-white font-bold bg-zinc-50 dark:bg-zinc-950 p-2 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                                          <FileText className="h-3 w-3" /> {file.name}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
                       </div>

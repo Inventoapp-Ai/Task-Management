@@ -25,6 +25,14 @@ function ok(message: string, data?: any, status = 200) {
   return NextResponse.json({ success: true, message, data }, { status });
 }
 
+function getISTDateRange(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+
+  const start = new Date(`${date}T00:00:00+05:30`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
 export async function GET(request: NextRequest) {
   try {
     await connectDB();
@@ -56,17 +64,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const baseFilter: any = { ...filter };
-    if (date) {
-      const start = new Date(date);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(date);
-      end.setHours(23, 59, 59, 999);
-      baseFilter.createdAt = { $gte: start, $lte: end };
-    }
+    const dateRange = date ? getISTDateRange(date) : null;
 
     const pipeline: any[] = [
-      { $match: baseFilter },
+      { $match: filter },
       {
         $lookup: {
           from: "users",
@@ -109,11 +110,22 @@ export async function GET(request: NextRequest) {
       {
         $lookup: {
           from: "tasks",
-          localField: "_id",
-          foreignField: "assignmentId",
-          as: "tasks"
+          let: { assignmentId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ["$assignmentId", "$$assignmentId"] },
+                ...(dateRange
+                  ? { deadline: { $gte: dateRange.start, $lt: dateRange.end } }
+                  : {}),
+              },
+            },
+            { $sort: { deadline: 1, createdAt: 1 } },
+          ],
+          as: "tasks",
         }
       },
+      ...(dateRange ? [{ $match: { "tasks.0": { $exists: true } } }] : []),
       {
         $addFields: {
           totalTasks: { $size: "$tasks" },
@@ -149,24 +161,21 @@ export async function GET(request: NextRequest) {
         }
       },
       {
-        $lookup: {
-          from: "users",
-          localField: "assignedBy",
-          foreignField: "_id",
-          as: "assignedBy"
+        $project: {
+          "assignedBy.password": 0,
+          "assignedToInfo.password": 0,
         }
       },
-      { $unwind: "$assignedBy" },
       {
         $addFields: {
-          assignedTo: "$assignedToInfo"
+          assignedTo: "$assignedToInfo",
+          assignedBy: "$assignedByInfo"
         }
       },
       {
         $project: {
-          "assignedBy.password": 0,
-          "assignedTo.password": 0,
-          assignedToInfo: 0
+          assignedToInfo: 0,
+          assignedByInfo: 0
         }
       },
       { $sort: { createdAt: -1 } }
@@ -195,6 +204,14 @@ export async function POST(request: NextRequest) {
     
     if (!assignedTo || !title || !tasksData || !Array.isArray(tasksData) || tasksData.length === 0) {
       return fail(400, "Missing required fields");
+    }
+
+    if (!Types.ObjectId.isValid(assignedTo)) {
+      return fail(400, "Invalid assignee");
+    }
+
+    if (projectId && !Types.ObjectId.isValid(projectId)) {
+      return fail(400, "Invalid project");
     }
 
     const targetUser = await User.findById(assignedTo).lean();
@@ -249,18 +266,19 @@ export async function POST(request: NextRequest) {
       return fail(400, "No valid tasks.");
     }
 
-    // Log activity
-    try {
-      await ActivityLog.create({
-        userId: auth.userId,
-        action: "create_assignment",
-        resourceType: "user",
-        resourceId: assignment._id.toString(),
-        ipAddress: request.headers.get("x-forwarded-for") || "unknown",
-        userAgent: request.headers.get("user-agent") || "unknown",
-        timestamp: new Date(),
-      });
-    } catch (e) {}
+    ActivityLog.create({
+      userId: auth.userId,
+      action: "create_task",
+      resourceType: "assignment",
+      resourceId: assignment._id.toString(),
+      details: {
+        assignedTo,
+        taskCount: createdTasks.length,
+      },
+      ipAddress: request.headers.get("x-forwarded-for") || "unknown",
+      userAgent: request.headers.get("user-agent") || "unknown",
+      timestamp: new Date(),
+    }).catch(e => console.error("Activity log error:", e));
 
     return ok("Assignment created successfully", { 
       assignment: assignment.toObject(), 
