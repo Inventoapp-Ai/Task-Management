@@ -105,6 +105,17 @@ export async function PUT(
 
     await task.save();
 
+    const taskStatuses = await Task.find({ assignmentId: task.assignmentId }).select("status").lean();
+    const totalTasks = taskStatuses.length;
+    const completedTasks = taskStatuses.filter((item) => item.status === "completed").length;
+    await Assignment.findByIdAndUpdate(task.assignmentId, {
+      status: totalTasks > 0 && completedTasks === totalTasks
+        ? "completed"
+        : completedTasks > 0
+          ? "in_progress"
+          : "pending",
+    });
+
     try {
       await ActivityLog.create({
         userId: auth.userId,

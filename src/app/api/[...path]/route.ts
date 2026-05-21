@@ -933,6 +933,16 @@ export async function PUT(request: NextRequest, context: Context) {
       }
     }
 
+    const updatedTaskStatuses = await Task.find({ assignmentId }).select("status").lean();
+    const totalTasks = updatedTaskStatuses.length;
+    const completedTasks = updatedTaskStatuses.filter((task) => task.status === "completed").length;
+    assignment.status = totalTasks > 0 && completedTasks === totalTasks
+      ? "completed"
+      : completedTasks > 0
+        ? "in_progress"
+        : "pending";
+    await assignment.save();
+
     logActivity(request, {
       userId: auth.user.userId,
       action: "update_assignment",

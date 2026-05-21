@@ -318,6 +318,23 @@ export function AssignmentDetails({
 
   if (!assignment) return null;
 
+  const getTaskId = (task: any, index: number) => task._id || `micro-${index}`;
+  const editableBundleTask = assignmentTasks.find((task, index) => {
+    const taskId = getTaskId(task, index);
+    return task.status !== "completed" && (expandedTasks[taskId] || task.status === "in_progress");
+  }) || assignmentTasks.find((task) => task.status !== "completed");
+  const editableBundleTaskId = editableBundleTask?._id;
+  const bundleExtraEvidence = editableBundleTaskId ? (taskEvidence[editableBundleTaskId] || {}) : {};
+  const submittedExtraTasks = assignmentTasks.flatMap((task) =>
+    (task.extraTasks || []).map((extra: any) => ({ ...extra, parentTaskTitle: task.title }))
+  );
+  const completedTaskCount = assignmentTasks.filter((task) => task.status === "completed").length;
+  const bundleProgress = assignment.isMicroTask
+    ? 100
+    : assignmentTasks.length > 0
+      ? (completedTaskCount / assignmentTasks.length) * 100
+      : Number(assignment.progress) || 0;
+
   const currentUserId = currentUser?.id || currentUser?._id || currentUser?.userId;
   const assigneeId = assignment.assignedTo?._id || assignment.assignedTo?.id || assignment.assignedTo;
   const isAssignee = currentUserId && assigneeId && (String(currentUserId) === String(assigneeId));
@@ -342,9 +359,9 @@ export function AssignmentDetails({
               <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em] mb-2">Bundle Progress</div>
               <div className="flex items-center gap-4">
                 <div className="h-2.5 w-40 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-                   <div className="h-full bg-zinc-900 dark:bg-zinc-50 transition-all duration-1000" style={{ width: `${assignment.isMicroTask ? 100 : (assignment.progress || 0)}%` }} />
+                   <div className="h-full bg-zinc-900 dark:bg-zinc-50 transition-all duration-1000" style={{ width: `${bundleProgress}%` }} />
                 </div>
-                <span className="text-sm font-bold tabular-nums">{assignment.isMicroTask ? 100 : Math.round(assignment.progress || 0)}%</span>
+                <span className="text-sm font-bold tabular-nums">{Math.round(bundleProgress)}%</span>
               </div>
             </div>
           </div>
@@ -357,8 +374,9 @@ export function AssignmentDetails({
                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.3em]">Loading Secure Data...</p>
             </div>
           ) : (
-            assignmentTasks.map((task, idx) => {
-              const taskId = task._id || `micro-${idx}`;
+            <>
+            {assignmentTasks.map((task, idx) => {
+              const taskId = getTaskId(task, idx);
               const evidence = taskEvidence[taskId] || { completionRemarks: "", evidence: "", evidenceFiles: [] };
               const isExpanded = expandedTasks[taskId] || task.status === 'in_progress';
 
@@ -507,112 +525,6 @@ export function AssignmentDetails({
                         </div>
                       </div>
 
-                      <div className="space-y-3 rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white/70 dark:bg-zinc-950/40 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <Label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Extra Tasks Done</Label>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-3 rounded-xl text-[10px] font-bold uppercase tracking-widest gap-2"
-                            onClick={() => addExtraTask(task._id)}
-                          >
-                            <Plus className="h-3.5 w-3.5" /> Add
-                          </Button>
-                        </div>
-
-                        {(evidence.extraTasks || []).map((extra: any, extraIndex: number) => (
-                          <div key={extraIndex} className="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/40 p-4 space-y-3">
-                            <div className="flex items-start gap-3">
-                              <div className="grid gap-3 flex-1">
-                                <Input
-                                  placeholder="Extra task title"
-                                  value={extra.title}
-                                  onChange={(e) => updateExtraTaskField(task._id, extraIndex, "title", e.target.value)}
-                                  className="h-11 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
-                                />
-                                <textarea
-                                  placeholder="Description"
-                                  value={extra.description}
-                                  onChange={(e) => updateExtraTaskField(task._id, extraIndex, "description", e.target.value)}
-                                  className="w-full min-h-[72px] p-3 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 focus:ring-2 focus:ring-zinc-900/5 outline-none text-sm resize-none font-medium shadow-sm"
-                                />
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-9 w-9 rounded-xl text-zinc-400 hover:text-destructive"
-                                onClick={() => removeExtraTask(task._id, extraIndex)}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-
-                            <div className="grid md:grid-cols-2 gap-3">
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="relative">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    placeholder="0"
-                                    value={extra.hours || ""}
-                                    onChange={(e) => updateExtraTaskField(task._id, extraIndex, "hours", e.target.value)}
-                                    className="h-11 pr-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
-                                  />
-                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400 uppercase">Hr</span>
-                                </div>
-                                <div className="relative">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    max="59"
-                                    placeholder="0"
-                                    value={extra.minutes || ""}
-                                    onChange={(e) => updateExtraTaskField(task._id, extraIndex, "minutes", e.target.value)}
-                                    className="h-11 pr-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
-                                  />
-                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400 uppercase">Min</span>
-                                </div>
-                              </div>
-                              <div className="relative">
-                                <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
-                                <Input
-                                  placeholder="Proof link if any"
-                                  value={extra.evidence || ""}
-                                  onChange={(e) => updateExtraTaskField(task._id, extraIndex, "evidence", e.target.value)}
-                                  className="h-11 pl-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="flex flex-wrap gap-2">
-                              {extra.evidenceFiles?.map((file: any, fileIndex: number) => (
-                                <div key={fileIndex} className="flex items-center gap-2 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-[10px] font-bold px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-                                  <File className="h-3.5 w-3.5" />
-                                  <span className="max-w-[120px] truncate">{file.name}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const files = extra.evidenceFiles.filter((_: any, i: number) => i !== fileIndex);
-                                      updateExtraTaskField(task._id, extraIndex, "evidenceFiles", files);
-                                    }}
-                                    className="hover:text-destructive transition-colors"
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </button>
-                                </div>
-                              ))}
-                              <label className="flex items-center gap-2 bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900 text-zinc-400 cursor-pointer text-[10px] font-bold px-4 py-2.5 rounded-xl border border-zinc-100 dark:border-zinc-800 transition-all border-dashed">
-                                {isUploading === `${task._id}-extra-${extraIndex}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                                <span>{isUploading === `${task._id}-extra-${extraIndex}` ? "Uploading..." : "Attach Proof"}</span>
-                                <input type="file" multiple className="hidden" onChange={(e) => handleExtraTaskFileUpload(task._id, extraIndex, e)} disabled={isUploading === `${task._id}-extra-${extraIndex}`} />
-                              </label>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
                       <div className="flex items-center justify-end gap-3 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                          <Button 
                             variant="outline" 
@@ -705,45 +617,169 @@ export function AssignmentDetails({
                                 ))}
                              </div>
                           )}
-                          {task.extraTasks?.length > 0 && (
-                            <div className="space-y-2 pt-2 border-t border-emerald-100/60 dark:border-emerald-900/30">
-                              <p className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest">Extra Tasks</p>
-                              {task.extraTasks.map((extra: any, extraIndex: number) => (
-                                <div key={extraIndex} className="rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3 space-y-2">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                      <p className="text-xs font-black text-zinc-900 dark:text-zinc-100">{extra.title}</p>
-                                      {extra.description && <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">{extra.description}</p>}
-                                    </div>
-                                    <span className="shrink-0 text-[10px] font-black text-zinc-500 tabular-nums bg-zinc-50 dark:bg-zinc-800 px-2 py-1 rounded-lg">
-                                      {formatTime(extra.timeSpent || 0)}
-                                    </span>
-                                  </div>
-                                  {(extra.evidence || extra.evidenceFiles?.length > 0) && (
-                                    <div className="flex flex-wrap gap-2">
-                                      {extra.evidence && (
-                                        <a href={extra.evidence} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[10px] text-zinc-900 dark:text-white font-bold bg-zinc-50 dark:bg-zinc-950 p-2 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
-                                          <LinkIcon className="h-3 w-3" /> Proof Link <ExternalLink className="h-2.5 w-2.5 opacity-30" />
-                                        </a>
-                                      )}
-                                      {extra.evidenceFiles?.map((file: any, fileIndex: number) => (
-                                        <a key={fileIndex} href={getViewUrl(file.url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[10px] text-zinc-900 dark:text-white font-bold bg-zinc-50 dark:bg-zinc-950 p-2 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
-                                          <FileText className="h-3 w-3" /> {file.name}
-                                        </a>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       </div>
                     </div>
                   )}
                 </div>
               );
-            })
+            })}
+
+            {submittedExtraTasks.length > 0 && (
+              <div className="rounded-3xl border border-emerald-100/50 dark:border-emerald-900/20 bg-emerald-50/20 dark:bg-emerald-950/5 p-6 space-y-3">
+                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Extra Tasks Done</p>
+                {submittedExtraTasks.map((extra: any, extraIndex: number) => (
+                  <div key={`${extra.parentTaskTitle}-${extraIndex}`} className="rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-black text-zinc-900 dark:text-zinc-100">{extra.title}</p>
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">{extra.parentTaskTitle}</p>
+                        {extra.description && <p className="text-xs text-zinc-500 mt-2 leading-relaxed">{extra.description}</p>}
+                      </div>
+                      <span className="shrink-0 text-[10px] font-black text-zinc-500 tabular-nums bg-zinc-50 dark:bg-zinc-800 px-2 py-1 rounded-lg">
+                        {formatTime(extra.timeSpent || 0)}
+                      </span>
+                    </div>
+                    {(extra.evidence || extra.evidenceFiles?.length > 0) && (
+                      <div className="flex flex-wrap gap-2">
+                        {extra.evidence && (
+                          <a href={extra.evidence} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[10px] text-zinc-900 dark:text-white font-bold bg-zinc-50 dark:bg-zinc-950 p-2 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                            <LinkIcon className="h-3 w-3" /> Proof Link <ExternalLink className="h-2.5 w-2.5 opacity-30" />
+                          </a>
+                        )}
+                        {extra.evidenceFiles?.map((file: any, fileIndex: number) => (
+                          <a key={fileIndex} href={getViewUrl(file.url)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[10px] text-zinc-900 dark:text-white font-bold bg-zinc-50 dark:bg-zinc-950 p-2 px-3 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                            <FileText className="h-3 w-3" /> {file.name}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {editableBundleTaskId && isAssignee && !assignment.isMicroTask && (
+              <div className="space-y-3 rounded-3xl border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Extra Tasks Done</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3 rounded-xl text-[10px] font-bold uppercase tracking-widest gap-2"
+                    onClick={() => addExtraTask(editableBundleTaskId)}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add
+                  </Button>
+                </div>
+
+                {(bundleExtraEvidence.extraTasks || []).map((extra: any, extraIndex: number) => (
+                  <div key={extraIndex} className="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/40 p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="grid gap-3 flex-1">
+                        <Input
+                          placeholder="Extra task title"
+                          value={extra.title}
+                          onChange={(e) => updateExtraTaskField(editableBundleTaskId, extraIndex, "title", e.target.value)}
+                          className="h-11 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                        />
+                        <textarea
+                          placeholder="Description"
+                          value={extra.description}
+                          onChange={(e) => updateExtraTaskField(editableBundleTaskId, extraIndex, "description", e.target.value)}
+                          className="w-full min-h-[72px] p-3 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 focus:ring-2 focus:ring-zinc-900/5 outline-none text-sm resize-none font-medium shadow-sm"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 rounded-xl text-zinc-400 hover:text-destructive"
+                        onClick={() => removeExtraTask(editableBundleTaskId, extraIndex)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={extra.hours || ""}
+                            onChange={(e) => updateExtraTaskField(editableBundleTaskId, extraIndex, "hours", e.target.value)}
+                            className="h-11 pr-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                          />
+                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400 uppercase">Hr</span>
+                        </div>
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            min="0"
+                            max="59"
+                            placeholder="0"
+                            value={extra.minutes || ""}
+                            onChange={(e) => updateExtraTaskField(editableBundleTaskId, extraIndex, "minutes", e.target.value)}
+                            className="h-11 pr-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                          />
+                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400 uppercase">Min</span>
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+                        <Input
+                          placeholder="Proof link if any"
+                          value={extra.evidence || ""}
+                          onChange={(e) => updateExtraTaskField(editableBundleTaskId, extraIndex, "evidence", e.target.value)}
+                          className="h-11 pl-12 bg-white dark:bg-zinc-950 border-zinc-100 dark:border-zinc-800 rounded-xl text-sm shadow-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {extra.evidenceFiles?.map((file: any, fileIndex: number) => (
+                        <div key={fileIndex} className="flex items-center gap-2 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-[10px] font-bold px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+                          <File className="h-3.5 w-3.5" />
+                          <span className="max-w-[120px] truncate">{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const files = extra.evidenceFiles.filter((_: any, i: number) => i !== fileIndex);
+                              updateExtraTaskField(editableBundleTaskId, extraIndex, "evidenceFiles", files);
+                            }}
+                            className="hover:text-destructive transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <label className="flex items-center gap-2 bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900 text-zinc-400 cursor-pointer text-[10px] font-bold px-4 py-2.5 rounded-xl border border-zinc-100 dark:border-zinc-800 transition-all border-dashed">
+                        {isUploading === `${editableBundleTaskId}-extra-${extraIndex}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                        <span>{isUploading === `${editableBundleTaskId}-extra-${extraIndex}` ? "Uploading..." : "Attach Proof"}</span>
+                        <input type="file" multiple className="hidden" onChange={(e) => handleExtraTaskFileUpload(editableBundleTaskId, extraIndex, e)} disabled={isUploading === `${editableBundleTaskId}-extra-${extraIndex}`} />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+
+                {(bundleExtraEvidence.extraTasks || []).length > 0 && (
+                  <div className="flex justify-end pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 px-5 rounded-xl text-[10px] font-bold uppercase tracking-widest gap-2 border-zinc-200"
+                      onClick={() => handleSaveProgress(editableBundleTaskId, false)}
+                    >
+                      <Save className="h-3.5 w-3.5" /> Save Extra Tasks
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            </>
           )}
         </div>
       </DialogContent>
